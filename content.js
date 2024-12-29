@@ -2,25 +2,132 @@ const BTN_ID = "ai-helper-button";
 const CHAT_ID = "ai-helper-chat-container";
 
 let lastPath = "";
+const problemDataMap = new Map();
 const chatState = JSON.parse(localStorage.getItem("chatState")) || {};
 
-// Messaging
+
+window.addEventListener("xhrDataFetched", (event)=>{
+  const data = event.detail;
+  if(data.url && data.url.match(/https:\/\/api2\.maang\.in\/problems\/user\/\d+/)){
+    const isMatch = data.url.match(/\/(\d+)$/);
+    if(isMatch){
+      const id = isMatch[1];
+      problemDataMap.set(id, data.response);
+      console.log(data.response);
+    }
+  }
+});
+
+function getCurrentProblemId() {
+  const isMatch = window.location.pathname.match(/-(\d+)$/);
+  return isMatch ? isMatch[1] : null;
+}
+
+function getProblemDataById(id) {
+  if (id && problemDataMap.has(id)) {
+    return problemDataMap.get(id);
+  }
+  console.log(`No data found for id = ${id}`);
+  return null;
+}
+
+async function getChatHistory(id) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get([id], (result) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve(result[id] || []);
+      }
+    });
+  });
+}
+
+async function setChatHistory(id, chatHistory) {
+  return new Promise((resolve, reject) => {
+    const data = {};
+    data[id] = chatHistory;
+
+    chrome.storage.local.set(data, () => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function removeChatHistory(id) {
+  await new Promise((resolve, reject) => {
+    chrome.storage.local.remove(id, () => {
+      if (chrome.runtime.lastError) {
+        console.error("Error deleting chat history:", chrome.runtime.lastError);
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 async function getResponse(userMessage) {
   const apiKey = "AIzaSyB40fGLdHq8tp51R8_YQLX0D65GdyrJ23o";
   try {
-      const payload = { contents: [{ parts: [{ text: userMessage }] }] };
-      const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
-      );
-      if (!response.ok) throw new Error(`Error: ${response.status}`);
-      const data = await response.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
+    const id = getCurrentProblemId();
+    if (!id) throw new Error("Problem ID not found");
+
+    let chatHistory = await getChatHistory(id);
+
+    if (chatHistory.length === 0) {
+      chatHistory = [
+        {
+          role: "user",
+          parts: [{ text: userMessage }],
+        },
+      ];
+    } else {
+      chatHistory.push({
+        role: "user",
+        parts: [{ text: userMessage }],
+      });
+    }
+
+    const payload = { contents: chatHistory };
+    // console.log("Payload Sent:", JSON.stringify(payload, null, 2));
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    // console.log("Fetch Request Status:", response.status);
+
+    if (!response.ok) throw new Error(`Error: ${response.status}`);
+    
+    const data = await response.json();
+    // console.log("API Response:", JSON.stringify(data, null, 2));
+
+    const AiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response";
+    // console.log("AI Response:", AiResponse);
+
+    chatHistory.push({
+      role: "model",
+      parts: [{ text: AiResponse }],
+    });
+
+    await setChatHistory(id, chatHistory);
+    return AiResponse;
   } catch (error) {
-      console.error(error);
-      return "Error: Unable to fetch response.";
+    console.error("Error fetching response:", error);
+    return "Error: Unable to fetch response.";
   }
 }
+
 
 async function sendMessage(userMessage) {
   displayUserMessage(userMessage);
@@ -37,6 +144,8 @@ function storeMessage(userMessage, botResponse) {
   chatState[lastPath].push({ sender: "bot", message: botResponse });
   localStorage.setItem("chatState", JSON.stringify(chatState));
 }
+
+
 
 
 // Theme configurations
@@ -510,6 +619,8 @@ function createChat() {
       margin: 5px;
   `;
   closeButton.addEventListener("click", () => {
+      const id = getCurrentProblemId();
+      removeChatHistory(id);
       chat.remove();
       chatState[lastPath] = null;
       localStorage.setItem("chatState", JSON.stringify(chatState));
@@ -530,3 +641,5 @@ function createChat() {
       });
   }
 }
+
+
