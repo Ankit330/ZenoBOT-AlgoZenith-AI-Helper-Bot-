@@ -35,6 +35,15 @@ const lightConfig = {
 };
 
 
+function addInjectScript() {
+  const script = document.createElement("script");
+  script.src = chrome.runtime.getURL("inject.js");
+  script.onload = () => console.log("Script loaded");
+  document.documentElement.insertAdjacentElement("afterbegin", script);
+  script.remove();
+}
+
+
 addInjectScript();
 
 window.addEventListener("xhrDataFetched", (event)=>{
@@ -125,14 +134,25 @@ function buildInitialPrompt(userMessage) {
     restrictions: "Ensure that the response is strictly related to the problem provided. Any unrelated questions should be answered with: 'Invalid question. Please ask a question related to the problem.' Provide hints, tags, or explanations, but do not provide the complete solution or code directly. Encourage the user to solve the problem themselves by offering hints and guidance."
   };
 
-  console.log(JSON.stringify(prompt, null, 2));
   return JSON.stringify(prompt, null, 2);
 }
 
 
+let apiKey = ""
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "SET_API_KEY") {
+     apiKey = message.apiKey;
+    localStorage.setItem('apiKey', apiKey);
+    console.log('API Key set in localStorage:', apiKey);
+  }
+});
+
 async function getResponse(userMessage) {
-  const apiKey = "AIzaSyB40fGLdHq8tp51R8_YQLX0D65GdyrJ23o";
   try {
+    if (!apiKey) {
+      throw new Error("API Key is missing.");
+    }
     const id = getCurrentProblemId();
     if (!id) throw new Error("Problem ID not found");
 
@@ -153,7 +173,6 @@ async function getResponse(userMessage) {
     }
 
     const payload = { contents: chatHistory };
-    // console.log("Payload Sent:", JSON.stringify(payload, null, 2));
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
@@ -181,23 +200,22 @@ async function getResponse(userMessage) {
 
 
 async function sendMessage(userMessage) {
-  displayUserMessage(userMessage); // Display user message on the interface.
-  showLoadingIndicator(true); // Show loading indicator when processing the response.
-  
-  // Check if it's the first time (no history yet)
+  displayUserMessage(userMessage);
+  showLoadingIndicator(true); 
   const id = getCurrentProblemId();
   const chatHistory = await getChatHistory(id);
   
   if (chatHistory.length === 0) {
     initializeChat();
   } else {
-    // Send normal user message and bot's response
     const botRes = await getResponse(userMessage);
-    showLoadingIndicator(false); // Hide loading indicator after response.
-    displayBotResponse(botRes); // Display bot's response.
-    storeMessage(userMessage, botRes); // Store the user and bot messages.
+    showLoadingIndicator(false);
+    displayBotResponse(botRes);
+    storeMessage(userMessage, botRes);
   }
 }
+
+
 function storeMessage(userMessage, botResponse) {
   if (!chatState[lastPath]) chatState[lastPath] = [];
   chatState[lastPath].push({ sender: "user", message: userMessage });
@@ -287,15 +305,6 @@ function observeThemeChanges() {
         const observer = new MutationObserver(detectTheme);
         observer.observe(themeButton, { attributes: true, attributeFilter: ["aria-checked"] });
     }
-}
-
-// Initialization
-function addInjectScript() {
-    const script = document.createElement("script");
-    script.src = chrome.runtime.getURL("inject.js");
-    script.onload = () => console.log("Script loaded");
-    document.documentElement.insertAdjacentElement("afterbegin", script);
-    script.remove();
 }
 
 const observer = new MutationObserver(() => {
@@ -647,6 +656,7 @@ function createChat() {
   `;
   closeButton.addEventListener("click", () => {
       const id = getCurrentProblemId();
+      if (!id) throw new Error("Problem ID not found");
       removeChatHistory(id);
       chat.remove();
       chatState[lastPath] = null;

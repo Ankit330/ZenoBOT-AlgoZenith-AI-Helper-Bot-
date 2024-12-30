@@ -10,7 +10,9 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "content_scripts": [
     {
@@ -20,7 +22,7 @@
       "js": [
         "content.js"
       ],
-       "type": "module"
+      "type": "module"
     }
   ],
   "background": {
