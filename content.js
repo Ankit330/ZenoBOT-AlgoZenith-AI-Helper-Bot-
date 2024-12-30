@@ -2,9 +2,12 @@ const BTN_ID = "ai-helper-button";
 const CHAT_ID = "ai-helper-chat-container";
 
 let lastPath = "";
+let apiKey = ""
 const problemDataMap = new Map();
 const chatState = JSON.parse(localStorage.getItem("chatState")) || {};
 
+
+// Theme 
 const darkConfig = {
   background: "#161d29",
   text: "#2b384e",
@@ -34,7 +37,94 @@ const lightConfig = {
   botMessageText: "#161d29"
 };
 
+let config = darkConfig;
 
+// Detects the current theme (dark or light) and updates the configuration accordingly.
+function detectTheme() {
+  const themeButton = document.querySelector('button[role="switch"]');
+  if (themeButton) {
+      const isDarkMode = themeButton.getAttribute('aria-checked') === "true";
+      config = isDarkMode ? darkConfig : lightConfig;
+      updateChatTheme();
+  }
+}
+
+// Applies the current theme configuration to the chat UI.
+function updateChatTheme() {
+  const button = document.getElementById(BTN_ID);
+
+  button.style.color = config.zenoBOT;
+
+  button.addEventListener("mouseenter", () => {
+    button.style.background = config.background;
+    button.style.color = config.zenoBOT;
+  });
+
+  button.addEventListener("mouseleave", () => {
+    button.style.background = "transparent";
+    button.style.color = config.zenoBOT;
+  });
+
+
+  const chat = document.getElementById(CHAT_ID);
+  if (!chat) return;
+
+  chat.style.backgroundColor = config.background;
+  chat.style.borderColor = config.borderColor;
+
+  const chatBody = document.getElementById(`${CHAT_ID}-body`);
+  if (chatBody) {
+      chatBody.style.backgroundColor = config.background;
+      
+      Array.from(chatBody.children).forEach(messageContainer => {
+          const messageElement = messageContainer.querySelector("div:first-child");
+          const isUserMessage = messageContainer.style.alignItems === "flex-end";
+
+          if (messageElement) {
+              messageElement.style.backgroundColor = isUserMessage ? config.userMessage : config.botMessage;
+              messageElement.style.color = isUserMessage ? config.userMessageText : config.botMessageText;
+          }
+      });
+  }
+
+  const input = chat.querySelector("textarea");
+  if (input) {
+      input.style.backgroundColor = config.background;
+      input.style.color = config.zenoBOT;
+      input.style.borderColor = config.borderColor;
+  }
+
+  const sendButton = Array.from(chat.querySelectorAll("button")).find(
+      button => button.textContent.trim() === "Send"
+  );
+  if (sendButton) {
+      sendButton.style.background = config.buttonBackground;
+      sendButton.style.color = config.background;
+  }
+
+  const loadingIndicator = document.getElementById("loading-indicator");
+  if (loadingIndicator) {
+      loadingIndicator.style.color = config.zenoBOT;
+  }
+  const reSizer = document.getElementById(`${CHAT_ID}-resizeBar`);
+  if (reSizer) {
+    reSizer.style.backgroundColor = config.borderColor;
+  }
+}
+
+// Observes theme changes on the webpage and updates the theme dynamically.
+function observeThemeChanges() {
+  const themeButton = document.querySelector('button[role="switch"]');
+  if (themeButton) {
+      themeButton.addEventListener("click", detectTheme);
+
+      const observer = new MutationObserver(detectTheme);
+      observer.observe(themeButton, { attributes: true, attributeFilter: ["aria-checked"] });
+  }
+}
+
+
+// Injects an external script into the DOM to be executed in the webpage's context.
 function addInjectScript() {
   const script = document.createElement("script");
   script.src = chrome.runtime.getURL("inject.js");
@@ -43,9 +133,16 @@ function addInjectScript() {
   script.remove();
 }
 
-
 addInjectScript();
 
+// Observes page changes and triggers appropriate updates for the chatbot interface.
+const observer = new MutationObserver(() => {
+  if (checkPageChange()) handlePageChange();
+});
+observer.observe(document.body, { childList: true, subtree: true });
+handlePageChange();
+
+// Handles data fetched via an XMLHttpRequest event and stores problem-related data.
 window.addEventListener("xhrDataFetched", (event)=>{
   const data = event.detail;
   if(data.url && data.url.match(/https:\/\/api2\.maang\.in\/problems\/user\/\d+/)){
@@ -58,11 +155,13 @@ window.addEventListener("xhrDataFetched", (event)=>{
   }
 });
 
+// Extracts the current problem ID from the URL, if present.
 function getCurrentProblemId() {
   const isMatch = window.location.pathname.match(/-(\d+)$/);
   return isMatch ? isMatch[1] : null;
 }
 
+// Retrieves problem data associated with a specific ID from the local map.
 function getProblemDataById(id) {
   if (id && problemDataMap.has(id)) {
     return problemDataMap.get(id);
@@ -71,6 +170,7 @@ function getProblemDataById(id) {
   return null;
 }
 
+// Retrieves problem data associated with a specific ID from the local map.
 async function getChatHistory(id) {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get([id], (result) => {
@@ -83,6 +183,7 @@ async function getChatHistory(id) {
   });
 }
 
+// Stores updated chat history for a specific problem ID in Chrome's local storage.
 async function setChatHistory(id, chatHistory) {
   return new Promise((resolve, reject) => {
     const data = {};
@@ -98,6 +199,7 @@ async function setChatHistory(id, chatHistory) {
   });
 }
 
+// Removes the chat history for a specific problem ID from Chrome's local storage.
 async function removeChatHistory(id) {
   await new Promise((resolve, reject) => {
     chrome.storage.local.remove(id, () => {
@@ -111,6 +213,7 @@ async function removeChatHistory(id) {
   });
 }
 
+// Initializes the chat with the first bot message.
 async function initializeChat() {
   const firstMessage = "Hi! I'm here to help you with your problem. Please ask a question related to the problem, and I'll assist you with that.";
   const botResponse = await getResponse(firstMessage);
@@ -118,7 +221,7 @@ async function initializeChat() {
   displayBotResponse(botResponse);
 }
 
-
+// Constructs an initial prompt for the chatbot based on the user's input and problem details.
 function buildInitialPrompt(userMessage) {
   const id = getCurrentProblemId();
   const problemData = getProblemDataById(id);
@@ -137,9 +240,7 @@ function buildInitialPrompt(userMessage) {
   return JSON.stringify(prompt, null, 2);
 }
 
-
-let apiKey = ""
-
+// Handles incoming messages from the Chrome runtime and stores the API key in local storage.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SET_API_KEY") {
      apiKey = message.apiKey;
@@ -148,6 +249,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// Sends a request to the AI model's API and retrieves the response.
 async function getResponse(userMessage) {
   try {
     if (!apiKey) {
@@ -198,7 +300,7 @@ async function getResponse(userMessage) {
   }
 }
 
-
+// Displays the user's message and fetches the bot's response.
 async function sendMessage(userMessage) {
   displayUserMessage(userMessage);
   showLoadingIndicator(true); 
@@ -215,7 +317,7 @@ async function sendMessage(userMessage) {
   }
 }
 
-
+// Stores user and bot messages in the chat state object.
 function storeMessage(userMessage, botResponse) {
   if (!chatState[lastPath]) chatState[lastPath] = [];
   chatState[lastPath].push({ sender: "user", message: userMessage });
@@ -224,96 +326,7 @@ function storeMessage(userMessage, botResponse) {
 }
 
 
-
-let config = darkConfig;
-function detectTheme() {
-    const themeButton = document.querySelector('button[role="switch"]');
-    if (themeButton) {
-        const isDarkMode = themeButton.getAttribute('aria-checked') === "true";
-        config = isDarkMode ? darkConfig : lightConfig;
-        updateChatTheme();
-    }
-}
-
-function updateChatTheme() {
-    const button = document.getElementById(BTN_ID);
-
-    button.style.color = config.zenoBOT;
-
-    button.addEventListener("mouseenter", () => {
-      button.style.background = config.background;
-      button.style.color = config.zenoBOT;
-    });
-
-    button.addEventListener("mouseleave", () => {
-      button.style.background = "transparent";
-      button.style.color = config.zenoBOT;
-    });
-  
-
-    const chat = document.getElementById(CHAT_ID);
-    if (!chat) return;
-
-    chat.style.backgroundColor = config.background;
-    chat.style.borderColor = config.borderColor;
-
-    const chatBody = document.getElementById(`${CHAT_ID}-body`);
-    if (chatBody) {
-        chatBody.style.backgroundColor = config.background;
-        
-        Array.from(chatBody.children).forEach(messageContainer => {
-            const messageElement = messageContainer.querySelector("div:first-child");
-            const isUserMessage = messageContainer.style.alignItems === "flex-end";
-
-            if (messageElement) {
-                messageElement.style.backgroundColor = isUserMessage ? config.userMessage : config.botMessage;
-                messageElement.style.color = isUserMessage ? config.userMessageText : config.botMessageText;
-            }
-        });
-    }
-
-    const input = chat.querySelector("textarea");
-    if (input) {
-        input.style.backgroundColor = config.background;
-        input.style.color = config.zenoBOT;
-        input.style.borderColor = config.borderColor;
-    }
-
-    const sendButton = Array.from(chat.querySelectorAll("button")).find(
-        button => button.textContent.trim() === "Send"
-    );
-    if (sendButton) {
-        sendButton.style.background = config.buttonBackground;
-        sendButton.style.color = config.background;
-    }
-
-    const loadingIndicator = document.getElementById("loading-indicator");
-    if (loadingIndicator) {
-        loadingIndicator.style.color = config.zenoBOT;
-    }
-    const reSizer = document.getElementById(`${CHAT_ID}-resizeBar`);
-    if (reSizer) {
-      reSizer.style.backgroundColor = config.borderColor;
-    }
-}
-
-function observeThemeChanges() {
-    const themeButton = document.querySelector('button[role="switch"]');
-    if (themeButton) {
-        themeButton.addEventListener("click", detectTheme);
-
-        const observer = new MutationObserver(detectTheme);
-        observer.observe(themeButton, { attributes: true, attributeFilter: ["aria-checked"] });
-    }
-}
-
-const observer = new MutationObserver(() => {
-    if (checkPageChange()) handlePageChange();
-});
-observer.observe(document.body, { childList: true, subtree: true });
-handlePageChange();
-
-// Page and Chat Management
+// Checks if the page URL has changed since the last update.
 function checkPageChange() {
     const currentPath = window.location.pathname;
     if (currentPath === lastPath) return false;
@@ -321,15 +334,18 @@ function checkPageChange() {
     return true;
 }
 
+// Determines if the current page is a problem page based on the URL.
 function isProblemPage() {
     return window.location.pathname.startsWith("/problems/") && window.location.pathname.length > "/problems/".length;
 }
 
+// Clears any existing chatbot UI elements from the page.
 function clearPage() {
     document.getElementById(BTN_ID)?.remove();
     document.getElementById(CHAT_ID)?.remove();
 }
 
+// Handles changes in the webpage and sets up the chatbot interface if needed.
 function handlePageChange() {
     if (isProblemPage()) {
         clearPage();
@@ -341,6 +357,7 @@ function handlePageChange() {
     }
 }
 
+// Creates a button to toggle the chatbot UI.
 function createButton() {
   const btn = document.createElement("li");
   btn.innerHTML = `<button id="ai-helper-button"><span>🤖</span><span>ZenoBOT</span></button>`;
@@ -390,12 +407,14 @@ function createButton() {
   });
 }
 
+// Toggles the visibility of the chatbot interface.
 function toggleChat() {
     const chat = document.getElementById(CHAT_ID);
     if (chat) chat.style.display = chat.style.display === "none" ? "flex" : "none";
     else createChat();
 }
 
+// Displays a message (either from the user or bot) in the chatbot UI.
 function displayMessage(message, isUser) {
     const chatBody = document.getElementById(`${CHAT_ID}-body`);
     const messageElement = document.createElement("div");
@@ -438,6 +457,7 @@ function displayMessage(message, isUser) {
     chatBody.scrollTop = chatBody.scrollHeight;
 }
 
+// Shows or hides the chatbot's loading indicator.
 function showLoadingIndicator(show) {
   const loadingIndicator = document.getElementById("loading-indicator");
   if (!loadingIndicator) return;
@@ -449,9 +469,13 @@ function showLoadingIndicator(show) {
   }
 }
 
+// Displays a user's message in the chat interface.
 function displayUserMessage(userMessage) { displayMessage(userMessage, true); }
+
+// Displays the bot's response in the chat interface.
 function displayBotResponse(botResponse) { displayMessage(botResponse, false); }
 
+// Creates the chatbot interface and sets up its elements.
 function createChat() {
   if (document.getElementById(CHAT_ID)) return;
 
