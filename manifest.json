@@ -20,7 +20,8 @@
         "https://maang.in/*"
       ],
       "js": [
-        "content.js"
+        "content.js",
+        "marked.js"
       ],
       "type": "module"
     }
@@ -32,7 +33,7 @@
     {
       "resources": [
         "inject.js",
-        "marked.min.js",
+        "marked.js",
         "assets/delete.png",
         "assets/logo.png"
       ],

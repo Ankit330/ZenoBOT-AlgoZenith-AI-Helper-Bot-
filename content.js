@@ -25,7 +25,7 @@ const darkConfig = {
 
 const lightConfig = {
   background: "#ffffff",
-  text: "#hsla(0, 0%, 100%, .9)",
+  text: "hsla(0, 0%, 100%, .9)",
   buttonText: "#ffffff",
   borderColor: "#a9c3d0",
   buttonBackground: "linear-gradient(to right, #033042, #005c83)",
@@ -52,8 +52,12 @@ function detectTheme() {
 // Applies the current theme configuration to the chat UI.
 function updateChatTheme() {
   const button = document.getElementById(BTN_ID);
-
-  button.style.color = config.zenoBOT;
+  
+  if (button) {
+    button.style.color = config.zenoBOT;
+  } else {
+    console.warn(`Button with ID ${BTN_ID} not found.`);
+  }
 
   button.addEventListener("mouseenter", () => {
     button.style.background = config.background;
@@ -133,7 +137,19 @@ function addInjectScript() {
   script.remove();
 }
 
+ function ensureMarkedLoaded() {
+  if (typeof marked === "undefined") {
+      const script = document.createElement("script");
+      script.src = chrome.runtime.getURL("marked.js");
+      script.onload = () => console.log("Marked library loaded successfully.");
+      script.onerror = () => console.error("Failed to load the marked library.");
+      document.documentElement.insertAdjacentElement("afterbegin", script);
+      script.remove();
+  }
+}
+
 addInjectScript();
+ensureMarkedLoaded();
 
 // Observes page changes and triggers appropriate updates for the chatbot interface.
 const observer = new MutationObserver(() => {
@@ -214,11 +230,12 @@ async function removeChatHistory(id) {
 }
 
 // Initializes the chat with the first bot message.
-async function initializeChat() {
+async function initializeChat(userMessage) {
   const firstMessage = "Hi! I'm here to help you with your problem. Please ask a question related to the problem, and I'll assist you with that.";
   const botResponse = await getResponse(firstMessage);
   showLoadingIndicator(false);
   displayBotResponse(botResponse);
+  storeMessage(userMessage ,botResponse);
 }
 
 // Constructs an initial prompt for the chatbot based on the user's input and problem details.
@@ -246,6 +263,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
      apiKey = message.apiKey;
     localStorage.setItem('apiKey', apiKey);
     console.log('API Key set in localStorage:', apiKey);
+  }
+});
+
+chrome.storage.local.get(["apiKey"], (result) => {
+  if (result.apiKey) {
+      apiKey = result.apiKey;
+      console.log("Retrieved API Key from Chrome storage:", apiKey);
+  } else {
+      console.warn("API Key not found in Chrome storage. Please set it.");
   }
 });
 
@@ -284,7 +310,11 @@ async function getResponse(userMessage) {
         body: JSON.stringify(payload),
       }
     );
-    if (!response.ok) throw new Error(`Error: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Error: ${response.status} - ${errorText}`);
+    }
     const data = await response.json();
     const AiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response";
     chatHistory.push({
@@ -308,12 +338,13 @@ async function sendMessage(userMessage) {
   const chatHistory = await getChatHistory(id);
   
   if (chatHistory.length === 0) {
-    initializeChat();
+    initializeChat(userMessage);
   } else {
     const botRes = await getResponse(userMessage);
+    const markedRes = marked.parse(botRes);
     showLoadingIndicator(false);
-    displayBotResponse(botRes);
-    storeMessage(userMessage, botRes);
+    displayBotResponse(markedRes);
+    storeMessage(userMessage, markedRes);
   }
 }
 
@@ -350,10 +381,13 @@ function handlePageChange() {
     if (isProblemPage()) {
         clearPage();
         addInjectScript();
+        ensureMarkedLoaded();
         createButton();
         detectTheme();
-        observeThemeChanges();
-        if (chatState[lastPath]) createChat();
+        observeThemeChanges(); 
+        if (chatState[lastPath]) {
+          createChat();
+      }
     }
 }
 
@@ -448,7 +482,26 @@ function displayMessage(message, isUser) {
     const timestamp = document.createElement("span");
     timestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     timestamp.style.cssText = `font-size: 10px; color: #aaa; margin-top: 5px;`;
-    messageElement.textContent = message;
+
+    if (!isUser) {
+      
+      try {
+        ensureMarkedLoaded();
+        // Ensure `marked` is loaded before parsing
+        if (typeof marked === "undefined") {
+            throw new Error("Marked library is not loaded.");
+        }
+
+      messageElement.innerHTML = marked.parse(message);
+    } catch (error) {
+        console.error("Error displaying bot message:", error);
+        messageElement.textContent = message; // Fallback to raw text
+    }
+  } else {
+      messageElement.textContent = message;
+  }
+    // messageElement.textContent = message;
+    
     messageContainer.appendChild(messageElement);
 
     if (isUser) messageContainer.appendChild(timestamp);
@@ -523,13 +576,13 @@ function createChat() {
   };
 
   const stopResizing = () => {
-      if (isResizing) {
-          isResizing = false;
-          document.body.style.cursor = "default";
-          document.removeEventListener("mousemove", resizeHandler);
-          document.removeEventListener("mouseup", stopResizing);
-      }
-  };
+    if (isResizing) {
+        isResizing = false;
+        document.body.style.cursor = "default";
+        document.removeEventListener("mousemove", resizeHandler); 
+        document.removeEventListener("mouseup", stopResizing);  
+    }
+};
 
   
   const chatBody = document.createElement("div");
@@ -678,13 +731,22 @@ function createChat() {
       align-self: flex-end; 
       margin: 5px;
   `;
-  closeButton.addEventListener("click", () => {
+  closeButton.addEventListener("click", async () => {
       const id = getCurrentProblemId();
-      if (!id) throw new Error("Problem ID not found");
-      removeChatHistory(id);
-      chat.remove();
-      chatState[lastPath] = null;
-      localStorage.setItem("chatState", JSON.stringify(chatState));
+      if (!id) {
+          console.error("Problem ID not found");
+          return;
+      }
+      try {
+          await removeChatHistory(id); 
+          chat.remove();
+          chatState[lastPath] = null;
+          localStorage.setItem("chatState", JSON.stringify(chatState));
+          console.log("Chat UI and history removed successfully.");
+      } catch (error) {
+          console.error("Error during chat history removal:", error);
+          alert("Failed to delete chat history. Please try again.");
+      }
   });
 
   chatFooter.appendChild(input);
@@ -697,9 +759,9 @@ function createChat() {
   desc.insertAdjacentElement("beforebegin", chat);
 
   if (chatState[lastPath]) {
-      chatState[lastPath].forEach(({ sender, message }) => {
-          sender === "user" ? displayUserMessage(message) : displayBotResponse(message);
-      });
+    chatState[lastPath].forEach(({ sender, message }) => {
+        sender === "user" ? displayUserMessage(message) : displayBotResponse(message);
+    });
   }
 }
 
