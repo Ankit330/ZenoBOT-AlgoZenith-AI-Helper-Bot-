@@ -484,14 +484,7 @@ function displayMessage(message, isUser) {
     timestamp.style.cssText = `font-size: 10px; color: #aaa; margin-top: 5px;`;
 
     if (!isUser) {
-      
       try {
-        ensureMarkedLoaded();
-        // Ensure `marked` is loaded before parsing
-        if (typeof marked === "undefined") {
-            throw new Error("Marked library is not loaded.");
-        }
-
       messageElement.innerHTML = marked.parse(message);
     } catch (error) {
         console.error("Error displaying bot message:", error);
@@ -500,7 +493,6 @@ function displayMessage(message, isUser) {
   } else {
       messageElement.textContent = message;
   }
-    // messageElement.textContent = message;
     
     messageContainer.appendChild(messageElement);
 

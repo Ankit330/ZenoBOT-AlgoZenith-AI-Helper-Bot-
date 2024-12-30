@@ -29,11 +29,10 @@ chrome.storage.local.get(['apiKey'], function(result) {
   
   function showSuccessMessage() {
     const successMessage = document.getElementById('successMessage');
-    successMessage.style.display = 'block'; // Show success message
+    successMessage.style.display = 'block';
     
-    // Close the popup after 1 second
     setTimeout(() => {
-      window.close(); // Close the popup
+      window.close();
     }, 1000);
   }
   

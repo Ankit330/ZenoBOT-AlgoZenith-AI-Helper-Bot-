@@ -34,19 +34,25 @@
       "resources": [
         "inject.js",
         "marked.js",
-        "assets/delete.png",
-        "assets/logo.png"
+        "assets/logo.png",
+        "assets/logo128.jpg",
+        "assets/logoo.png"
       ],
       "matches": ["<all_urls>"]
     }
   ],
+  "icons": {
+   "16": "assets/logo.png",
+   "32": "assets/logo.png",
+   "48": "assets/logo.png",
+   "128": "assets/logoo.png"
+ },
   "action": {
     "default_icon": {
       "16": "assets/logo.png",
-      "24": "assets/logo.png",
-      "32": "assets/logo.png",
       "48": "assets/logo.png",
-      "128": "assets/logo.png"
+      "32": "assets/logo.png",
+      "128": "assets/logoo.png"
     },
     "default_popup": "index.html",
     "default_title": "AI Helper: Your assistant for maang.in"
