@@ -5,6 +5,37 @@ let lastPath = "";
 const problemDataMap = new Map();
 const chatState = JSON.parse(localStorage.getItem("chatState")) || {};
 
+const darkConfig = {
+  background: "#161d29",
+  text: "#2b384e",
+  buttonText: "hsla(0, 0%, 100%, .9)",
+  borderColor: "#557486",
+  buttonBackground: "linear-gradient(to right, hsla(0, 0%, 100%, .6), #eaf1fd)",
+  deleteButton: "red",
+  userMessage: "hsla(0, 0%, 100%, .9)",
+  botMessage: "#2b384e",
+  zenoBOT : "hsla(0, 0%, 100%, .9)",
+  userMessageText: "#161d29",
+  botMessageText: "hsla(0, 0%, 100%, .9)"
+
+};
+
+const lightConfig = {
+  background: "#ffffff",
+  text: "#hsla(0, 0%, 100%, .9)",
+  buttonText: "#ffffff",
+  borderColor: "#a9c3d0",
+  buttonBackground: "linear-gradient(to right, #033042, #005c83)",
+  deleteButton: "#d32f2f",
+  userMessage: "#CECECEFF",
+  botMessage: "#ddf6ff",
+  zenoBOT : "#000000",
+  userMessageText: "#161d29",
+  botMessageText: "#161d29"
+};
+
+
+addInjectScript();
 
 window.addEventListener("xhrDataFetched", (event)=>{
   const data = event.detail;
@@ -71,6 +102,34 @@ async function removeChatHistory(id) {
   });
 }
 
+async function initializeChat() {
+  const firstMessage = "Hi! I'm here to help you with your problem. Please ask a question related to the problem, and I'll assist you with that.";
+  const botResponse = await getResponse(firstMessage);
+  showLoadingIndicator(false);
+  displayBotResponse(botResponse);
+}
+
+
+function buildInitialPrompt(userMessage) {
+  const id = getCurrentProblemId();
+  const problemData = getProblemDataById(id);
+
+  const prompt = {
+    instruction: "You are an AI assistant designed to help users with coding problems. Analyze the given problem details and respond only to queries directly related to the problem. If the query is irrelevant, reply with: 'Invalid question. Please ask a question related to the problem.' Do not provide complete solutions or code directly. Instead, give hints, explanations, or problem tags based on the user's query. If the user asks for code, encourage them to think and offer hints first. Ensure your responses remain focused on guiding the user to solve the problem themselves.",
+    problem_details: problemData,
+    query: {
+      type: "problem-solving",
+      question: userMessage,
+      language_preference: "c++.14"
+    },
+    restrictions: "Ensure that the response is strictly related to the problem provided. Any unrelated questions should be answered with: 'Invalid question. Please ask a question related to the problem.' Provide hints, tags, or explanations, but do not provide the complete solution or code directly. Encourage the user to solve the problem themselves by offering hints and guidance."
+  };
+
+  console.log(JSON.stringify(prompt, null, 2));
+  return JSON.stringify(prompt, null, 2);
+}
+
+
 async function getResponse(userMessage) {
   const apiKey = "AIzaSyB40fGLdHq8tp51R8_YQLX0D65GdyrJ23o";
   try {
@@ -83,7 +142,7 @@ async function getResponse(userMessage) {
       chatHistory = [
         {
           role: "user",
-          parts: [{ text: userMessage }],
+          parts: [{ text: buildInitialPrompt(userMessage) }],
         },
       ];
     } else {
@@ -104,17 +163,9 @@ async function getResponse(userMessage) {
         body: JSON.stringify(payload),
       }
     );
-
-    // console.log("Fetch Request Status:", response.status);
-
     if (!response.ok) throw new Error(`Error: ${response.status}`);
-    
     const data = await response.json();
-    // console.log("API Response:", JSON.stringify(data, null, 2));
-
     const AiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response";
-    // console.log("AI Response:", AiResponse);
-
     chatHistory.push({
       role: "model",
       parts: [{ text: AiResponse }],
@@ -130,14 +181,23 @@ async function getResponse(userMessage) {
 
 
 async function sendMessage(userMessage) {
-  displayUserMessage(userMessage);
-  showLoadingIndicator(true);
-  const botRes = await getResponse(userMessage);
-  showLoadingIndicator(false);
-  displayBotResponse(botRes);
-  storeMessage(userMessage, botRes);
+  displayUserMessage(userMessage); // Display user message on the interface.
+  showLoadingIndicator(true); // Show loading indicator when processing the response.
+  
+  // Check if it's the first time (no history yet)
+  const id = getCurrentProblemId();
+  const chatHistory = await getChatHistory(id);
+  
+  if (chatHistory.length === 0) {
+    initializeChat();
+  } else {
+    // Send normal user message and bot's response
+    const botRes = await getResponse(userMessage);
+    showLoadingIndicator(false); // Hide loading indicator after response.
+    displayBotResponse(botRes); // Display bot's response.
+    storeMessage(userMessage, botRes); // Store the user and bot messages.
+  }
 }
-
 function storeMessage(userMessage, botResponse) {
   if (!chatState[lastPath]) chatState[lastPath] = [];
   chatState[lastPath].push({ sender: "user", message: userMessage });
@@ -147,40 +207,7 @@ function storeMessage(userMessage, botResponse) {
 
 
 
-
-// Theme configurations
-const darkConfig = {
-    background: "#161d29",
-    text: "#2b384e",
-    buttonText: "hsla(0, 0%, 100%, .9)",
-    borderColor: "#557486",
-    buttonBackground: "linear-gradient(to right, hsla(0, 0%, 100%, .6), #eaf1fd)",
-    deleteButton: "red",
-    userMessage: "hsla(0, 0%, 100%, .9)",
-    botMessage: "#2b384e",
-    zenoBOT : "hsla(0, 0%, 100%, .9)",
-    userMessageText: "#161d29",
-    botMessageText: "hsla(0, 0%, 100%, .9)"
-
-};
-
-const lightConfig = {
-    background: "#ffffff",
-    text: "#hsla(0, 0%, 100%, .9)",
-    buttonText: "#ffffff",
-    borderColor: "#a9c3d0",
-    buttonBackground: "linear-gradient(to right, #033042, #005c83)",
-    deleteButton: "#d32f2f",
-    userMessage: "#CECECEFF",
-    botMessage: "#ddf6ff",
-    zenoBOT : "#000000",
-    userMessageText: "#161d29",
-    botMessageText: "#161d29"
-};
-
 let config = darkConfig;
-
-// Theme detection and update
 function detectTheme() {
     const themeButton = document.querySelector('button[role="switch"]');
     if (themeButton) {
